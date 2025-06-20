@@ -1,4 +1,4 @@
-name: Build and Scan
+name: Build and Deploy with Security Scans
 
 on:
   push:
@@ -6,34 +6,49 @@ on:
       - main
 
 jobs:
-  build:
-    name: Build and Scan Job
+  build-analyze-scan:
+    name: Build, Analyze, Scan & Push
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout source code
+      - name: Checkout Code
         uses: actions/checkout@v2
         with:
-          fetch-depth: 0  # Full history for better Sonar analysis
+          fetch-depth: 0
 
-      - name: SonarQube Scan
-        uses: sonarsource/sonarqube-scan-action@master
+      - name: Cache SonarQube packages
+        uses: actions/cache@v3
+        with:
+          path: ~/.sonar/cache
+          key: ${{ runner.os }}-sonar
+          restore-keys: ${{ runner.os }}-sonar
+
+      - name: Run SonarQube Scan
+        uses: sonarsource/sonarqube-scan-action@v2.0.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
 
-      # Uncomment to enforce quality gate failure
-      # - name: SonarQube Quality Gate
-      #   uses: sonarsource/sonarqube-quality-gate-action@master
-      #   timeout-minutes: 5
-      #   env:
-      #     SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      - name: Check Quality Gate
+        uses: sonarsource/sonarqube-quality-gate-action@v1.1.0
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
-      - name: Install Trivy and Scan Filesystem
+      - name: Install Trivy & Run Filesystem Scan
         run: |
-          sudo apt-get update && sudo apt-get install wget apt-transport-https gnupg lsb-release -y
+          sudo apt-get install wget apt-transport-https gnupg lsb-release -y
           wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
           sudo apt-get update
           sudo apt-get install trivy -y
           trivy fs .
+
+      - name: Docker build and push
+        run: |
+          docker build --build-arg TMDB_V3_API_KEY=315975a9fcb092307bff1b5467b99b99 -t netflix .
+          docker tag netflix janal024/netflix:latest
+          docker login -u ${{ secrets.DOCKERHUB_USERNAME }} -p ${{ secrets.DOCKERHUB_TOKEN }}
+          docker push janal024/netflix:latest
+        env:
+          DOCKER_CLI_ACI: 1
