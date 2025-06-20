@@ -52,3 +52,18 @@ jobs:
           docker push janal024/netflix:latest
         env:
           DOCKER_CLI_ACI: 1
+
+  deploy:
+    name: Deploy and Image Scan
+    needs: build-analyze-scan
+    runs-on: [self-hosted, Linux, X64] # Custom self-hosted runner on AWS
+
+    steps:
+      - name: Pull the Docker image
+        run: docker pull janal024/netflix:latest
+
+      - name: Trivy image scan
+        run: trivy image janal024/netflix:latest
+
+      - name: Run the container (netflix)
+        run: docker run -d --name netflix -p 8081:80 janal024/netflix:latest
